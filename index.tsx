@@ -1,9 +1,10 @@
+import "./style.css";
+
 import { definePluginSettings } from "@api/Settings";
 import { addContextMenuPatch, removeContextMenuPatch } from "@api/ContextMenu";
-import { ModalCloseButton, ModalContent, ModalFooter, ModalHeader, ModalRoot, openModal } from "@utils/modal";
 import definePlugin, { OptionType } from "@utils/types";
-import { findByPropsLazy } from "@webpack";
-import { Button, ComponentDispatch, Forms, Menu, React } from "@webpack/common";
+import { findByPropsLazy, findCssClassesLazy } from "@webpack";
+import { ComponentDispatch, createRoot, Menu, React } from "@webpack/common";
 import { sendMessage } from "@utils/discord";
 
 let bypassNext = false;
@@ -434,94 +435,322 @@ function checkRisks(content: string): Risk[] {
     return risks;
 }
 
-// ─── Modal ────────────────────────────────────────────────────────────────────
+// ─── Native Warning Popout ───────────────────────────────────────────────────
 
-const categoryColors: Record<string, string> = {
-    "Ambiguous Message":        "var(--status-warning)",
-    "Age Reference":            "var(--text-feedback-critical)",
-    "Slur / Hate Speech":       "var(--text-feedback-critical)",
-    "Threatening Language":     "var(--text-feedback-critical)",
-    "Self-Harm Encouragement":  "var(--text-feedback-critical)",
-    "Grooming Language":        "var(--text-feedback-critical)",
-    "Explicit Solicitation":    "var(--text-feedback-critical)",
-    "Raid / Spam Coordination": "var(--status-warning)",
-    "Custom Flagged Term":      "var(--status-warning)",
-};
+const PopoutClasses = findCssClassesLazy(
+    "contentWarningPopout",
+    "body",
+    "content",
+    "header",
+    "buttonWrapper",
+    "buttonContainer",
+    "button",
+    "buttonHint"
+);
 
-function RiskModal({ modalProps, risks, onAccept, onCancel }: {
-    modalProps: any;
-    risks: Risk[];
+const LayerClasses = findCssClassesLazy(
+    "layer",
+    "layerContainer"
+);
+
+const AnimationClasses = findCssClassesLazy(
+    "animatorTop",
+    "translate",
+    "didRender"
+);
+
+const TextClasses = findCssClassesLazy(
+    "defaultColor",
+    "markup"
+);
+
+const ButtonClasses = findCssClassesLazy(
+    "button",
+    "secondary",
+    "primary",
+    "hasText",
+    "md",
+    "buttonChildren",
+    "buttonChildrenWrapper"
+);
+
+function cls(...names: (string | undefined | null | false)[]) {
+    const set = new Set<string>();
+    for (const name of names) {
+        if (!name) continue;
+        for (const token of name.split(/\s+/)) {
+            if (token) set.add(token);
+        }
+    }
+    return Array.from(set).join(" ");
+}
+
+function formatWarningMessage(risks: Risk[]): string {
+    if (risks.length === 0) return "Are you sure you want to send it?";
+    const formattedDetails = risks.map(r => {
+        const d = r.detail.trim();
+        return d.endsWith(".") ? d : `${d}.`;
+    });
+    return `${formattedDetails.join(" ")} Are you sure you want to send it?`;
+}
+
+interface HoldUpPopoutProps {
+    message: string;
+    onAccept(): void;
+    onCancel(): void;
+}
+
+function HoldUpPopout({ message, onAccept, onCancel }: HoldUpPopoutProps) {
+    return (
+        <div
+            data-popout-animating="false"
+            className={cls(
+                AnimationClasses?.animatorTop,
+                AnimationClasses?.translate,
+                AnimationClasses?.didRender,
+                "animatorTop_faf9c0 translate_faf9c0 didRender_faf9c0 sg-popout-animator"
+            )}
+        >
+            <div aria-labelledby="content-warning-popout-label" role="dialog" tabIndex={-1} aria-modal="true">
+                <span className="hiddenVisually_b18fe2" style={{ display: "none" }}>
+                    <div
+                        data-live-announcer="true"
+                        style={{
+                            border: 0,
+                            clip: "rect(0px, 0px, 0px, 0px)",
+                            clipPath: "inset(50%)",
+                            height: 1,
+                            margin: -1,
+                            overflow: "hidden",
+                            padding: 0,
+                            position: "absolute",
+                            width: 1,
+                            whiteSpace: "nowrap"
+                        }}
+                    >
+                        <div role="log" aria-live="assertive" aria-relevant="additions" />
+                        <div role="log" aria-live="polite" aria-relevant="additions" />
+                    </div>
+                </span>
+                <form
+                    className={cls(PopoutClasses?.contentWarningPopout, "contentWarningPopout_d2eed6", "sg-content-warning-popout")}
+                    onSubmit={e => {
+                        e.preventDefault();
+                        onAccept();
+                    }}
+                >
+                    <div className={cls(PopoutClasses?.body, "body_d2eed6", "sg-popout-body")}>
+                        <div className={cls(PopoutClasses?.content, "content_d2eed6", "sg-popout-content")}>
+                            <div className={cls(PopoutClasses?.header, "header_d2eed6", "sg-popout-header")}>Hold Up!</div>
+                            <div
+                                className={cls(
+                                    TextClasses?.defaultColor,
+                                    "defaultColor__4bd52 text-sm/normal_cf4812",
+                                    TextClasses?.markup,
+                                    "markup__75297 sg-popout-label"
+                                )}
+                                id="content-warning-popout-label"
+                                data-text-variant="text-sm/normal"
+                            >
+                                {message}
+                            </div>
+                            <div className={cls(PopoutClasses?.buttonWrapper, "buttonWrapper_d2eed6", "sg-button-wrapper")}>
+                                <div className={cls(PopoutClasses?.buttonContainer, "buttonContainer_d2eed6", "sg-button-container")}>
+                                    <div className={cls(PopoutClasses?.button, "button_d2eed6")}>
+                                        <button
+                                            data-mana-component="button"
+                                            role="button"
+                                            className={cls(
+                                                ButtonClasses?.button,
+                                                ButtonClasses?.md,
+                                                ButtonClasses?.secondary,
+                                                ButtonClasses?.hasText,
+                                                "button_a22cb0 md_a22cb0 secondary_a22cb0 hasText_a22cb0 sg-button sg-button-secondary"
+                                            )}
+                                            type="button"
+                                            onClick={onCancel}
+                                        >
+                                            <div className={cls(ButtonClasses?.buttonChildrenWrapper, "buttonChildrenWrapper_a22cb0 sg-button-children-wrapper")}>
+                                                <div className={cls(ButtonClasses?.buttonChildren, "buttonChildren_a22cb0 sg-button-children")}>
+                                                    <span className={cls("lineClamp1__4bd52 text-md/medium_cf4812", "sg-button-text")} data-text-variant="text-md/medium">
+                                                        Edit Message
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </button>
+                                    </div>
+                                    <div
+                                        className={cls(
+                                            TextClasses?.defaultColor,
+                                            "defaultColor__4bd52 text-xs/normal_cf4812",
+                                            PopoutClasses?.buttonHint,
+                                            "buttonHint_d2eed6 sg-button-hint"
+                                        )}
+                                        data-text-variant="text-xs/normal"
+                                    >
+                                        <strong>ESC</strong> to edit
+                                    </div>
+                                </div>
+                                <div className={cls(PopoutClasses?.buttonContainer, "buttonContainer_d2eed6", "sg-button-container")}>
+                                    <div className={cls(PopoutClasses?.button, "button_d2eed6")}>
+                                        <button
+                                            data-mana-component="button"
+                                            role="button"
+                                            className={cls(
+                                                ButtonClasses?.button,
+                                                ButtonClasses?.md,
+                                                ButtonClasses?.primary,
+                                                ButtonClasses?.hasText,
+                                                "button_a22cb0 md_a22cb0 primary_a22cb0 hasText_a22cb0 sg-button sg-button-primary"
+                                            )}
+                                            type="button"
+                                            onClick={onAccept}
+                                        >
+                                            <div className={cls(ButtonClasses?.buttonChildrenWrapper, "buttonChildrenWrapper_a22cb0 sg-button-children-wrapper")}>
+                                                <div className={cls(ButtonClasses?.buttonChildren, "buttonChildren_a22cb0 sg-button-children")}>
+                                                    <span className={cls("lineClamp1__4bd52 text-md/medium_cf4812", "sg-button-text")} data-text-variant="text-md/medium">
+                                                        Send Now
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </button>
+                                    </div>
+                                    <div
+                                        className={cls(
+                                            TextClasses?.defaultColor,
+                                            "defaultColor__4bd52 text-xs/normal_cf4812",
+                                            PopoutClasses?.buttonHint,
+                                            "buttonHint_d2eed6 sg-button-hint"
+                                        )}
+                                        data-text-variant="text-xs/normal"
+                                    >
+                                        <strong>ENTER</strong> to send
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+}
+
+let activePopoutCleanup: (() => void) | null = null;
+
+function closeHoldUpPopout() {
+    if (activePopoutCleanup) {
+        const cleanup = activePopoutCleanup;
+        activePopoutCleanup = null;
+        cleanup();
+    }
+}
+
+function getChatBar(): HTMLElement | null {
+    const slate = document.querySelector("[data-slate-editor=\"true\"]");
+    const channelTextArea = slate?.closest<HTMLElement>("[class*=\"channelTextArea\"]");
+    if (channelTextArea) return channelTextArea;
+
+    return (
+        document.querySelector<HTMLElement>("[class*=\"channelTextArea_\"]") ||
+        document.querySelector<HTMLElement>("[class*=\"channelTextArea\"]") ||
+        document.querySelector<HTMLElement>("[class*=\"scrollableContainer\"]") ||
+        (slate as HTMLElement | null)
+    );
+}
+
+function openHoldUpPopout({ message, onAccept, onCancel }: {
+    message: string;
     onAccept(): void;
     onCancel(): void;
 }) {
-    function handleClose() {
-        modalProps.onClose();
+    closeHoldUpPopout();
+
+    const appEl = document.querySelector(".app__160d8") || document.body;
+    const themeClasses = Array.from(appEl.classList).filter(c => c.startsWith("theme-") || c.startsWith("images-")).join(" ") || "theme-dark theme-darker images-dark";
+
+    const container = document.createElement("div");
+    container.id = `popout_${Date.now()}`;
+    container.className = `sg-popout-fixed-wrapper ${LayerClasses?.layer ?? "layer__59d0d"} ${themeClasses}`;
+    document.body.appendChild(container);
+
+    const root = createRoot(container);
+
+    function handleAccept() {
+        closeHoldUpPopout();
+        onAccept();
+    }
+
+    function handleCancel() {
+        closeHoldUpPopout();
         onCancel();
     }
 
-    return (
-        <ModalRoot {...modalProps} size="small">
-            <ModalHeader separator={false} style={{ display: "flex", alignItems: "center" }}>
-                <Forms.FormTitle
-                    tag="h2"
-                    style={{ margin: 0, display: "flex", alignItems: "center", gap: 8, flex: 1 }}
-                >
-                    <span style={{ fontSize: "1.2em" }}>⚠️</span>
-                    Risky Message Detected
-                </Forms.FormTitle>
-                <ModalCloseButton onClick={handleClose} style={{ marginLeft: "auto" }} />
-            </ModalHeader>
+    function updatePosition() {
+        const chatBar = getChatBar();
+        if (chatBar) {
+            const rect = chatBar.getBoundingClientRect();
+            const bottom = Math.max(16, window.innerHeight - rect.top + 10);
+            const maxLeft = Math.max(16, window.innerWidth - 458);
+            const left = Math.max(16, Math.min(rect.left, maxLeft));
+            const maxHeight = Math.max(200, rect.top - 20);
 
-            <ModalContent style={{ padding: "12px 16px 0" }}>
-                <Forms.FormText style={{ marginBottom: 12, color: "var(--text-muted)" }}>
-                    Sending this message could put your account at risk. Review the issue{risks.length > 1 ? "s" : ""} below before proceeding:
-                </Forms.FormText>
+            container.style.position = "fixed";
+            container.style.bottom = `${bottom}px`;
+            container.style.left = `${left}px`;
+            container.style.setProperty("--reference-position-layer-max-height", `${maxHeight}px`);
+        } else {
+            container.style.position = "fixed";
+            container.style.bottom = "80px";
+            container.style.left = "50%";
+            container.style.transform = "translateX(-50%)";
+        }
+    }
 
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
-                    {risks.map((risk, i) => {
-                        const color = categoryColors[risk.category] ?? "var(--status-warning)";
-                        return (
-                            <div
-                                key={i}
-                                style={{
-                                    background: "var(--background-secondary)",
-                                    borderRadius: 8,
-                                    padding: "10px 14px",
-                                    borderLeft: `3px solid ${color}`,
-                                }}
-                            >
-                                <Forms.FormTitle
-                                    tag="h5"
-                                    style={{ margin: "0 0 4px 0", color, fontSize: "0.85em", textTransform: "uppercase", letterSpacing: "0.05em" }}
-                                >
-                                    {risk.category}
-                                </Forms.FormTitle>
-                                <Forms.FormText style={{ margin: 0, fontSize: "0.95em" }}>
-                                    {risk.detail}
-                                </Forms.FormText>
-                            </div>
-                        );
-                    })}
-                </div>
-            </ModalContent>
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
 
-            <ModalFooter style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
-                <Button
-                    color={Button.Colors.PRIMARY}
-                    look={Button.Looks.OUTLINED}
-                    onClick={handleClose}
-                    style={{ marginLeft: 16 }}
-                >
-                    Go Back
-                </Button>
-                <Button
-                    color={Button.Colors.RED}
-                    onClick={() => { modalProps.onClose(); onAccept(); }}
-                >
-                    Accept the Risk
-                </Button>
-            </ModalFooter>
-        </ModalRoot>
+    function onKeyDown(e: KeyboardEvent) {
+        if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            handleCancel();
+        } else if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            e.stopPropagation();
+            handleAccept();
+        }
+    }
+    window.addEventListener("keydown", onKeyDown, true);
+
+    function onMouseDown(e: MouseEvent) {
+        if (!container.contains(e.target as Node)) {
+            handleCancel();
+        }
+    }
+    const timer = setTimeout(() => {
+        window.addEventListener("mousedown", onMouseDown, true);
+    }, 50);
+
+    activePopoutCleanup = () => {
+        clearTimeout(timer);
+        window.removeEventListener("resize", updatePosition);
+        window.removeEventListener("scroll", updatePosition, true);
+        window.removeEventListener("keydown", onKeyDown, true);
+        window.removeEventListener("mousedown", onMouseDown, true);
+        try {
+            root.unmount();
+        } catch { }
+        container.remove();
+    };
+
+    root.render(
+        <HoldUpPopout
+            message={message}
+            onAccept={handleAccept}
+            onCancel={handleCancel}
+        />
     );
 }
 
@@ -591,6 +820,7 @@ export default definePlugin({
     },
 
     stop() {
+        closeHoldUpPopout();
         removeContextMenuPatch("channel-context", patchContextMenu);
         removeContextMenuPatch("gdm-context", patchContextMenu);
         removeContextMenuPatch("user-context", patchContextMenu);
@@ -614,53 +844,50 @@ export default definePlugin({
         const risks = checkRisks(msg.content);
         if (risks.length === 0) return;
 
-        openModal(props => (
-            <RiskModal
-                modalProps={props}
-                risks={risks}
-                onAccept={() => {
-                    bypassNext = true;
-                    const inp = document.querySelector("[data-slate-editor=\"true\"]") as HTMLElement | null;
-                    let sent = false;
+        openHoldUpPopout({
+            message: formatWarningMessage(risks),
+            onAccept: () => {
+                bypassNext = true;
+                const inp = document.querySelector("[data-slate-editor=\"true\"]") as HTMLElement | null;
+                let sent = false;
 
-                    if (inp) {
-                        inp.focus();
-                        const propsKey = Object.keys(inp).find(k => k.startsWith("__reactProps$"));
-                        const reactProps = propsKey ? (inp as any)[propsKey] : null;
-                        if (typeof reactProps?.onKeyDown === "function") {
-                            try {
-                                reactProps.onKeyDown({
-                                    key: "Enter",
-                                    code: "Enter",
-                                    keyCode: 13,
-                                    which: 13,
-                                    preventDefault: () => { },
-                                    stopPropagation: () => { }
-                                });
-                                sent = true;
-                            } catch { }
-                        }
-                    }
-
-                    if (!sent) {
-                        // Fallback: send message via API and clear composer
+                if (inp) {
+                    inp.focus();
+                    const propsKey = Object.keys(inp).find(k => k.startsWith("__reactProps$"));
+                    const reactProps = propsKey ? (inp as any)[propsKey] : null;
+                    if (typeof reactProps?.onKeyDown === "function") {
                         try {
-                            sendMessage(channelId, msg, true, options);
-                            ComponentDispatch?.dispatchToLastSubscribed?.("CLEAR_TEXT");
-                            ComponentDispatch?.dispatchToLastSubscribed?.("TEXTAREA_FOCUS");
-                        } catch {
-                            MessageActions.sendMessage(channelId, msg);
-                        }
-                        bypassNext = false;
+                            reactProps.onKeyDown({
+                                key: "Enter",
+                                code: "Enter",
+                                keyCode: 13,
+                                which: 13,
+                                preventDefault: () => { },
+                                stopPropagation: () => { }
+                            });
+                            sent = true;
+                        } catch { }
                     }
-                }}
-                onCancel={() => {
+                }
+
+                if (!sent) {
+                    // Fallback: send message via API and clear composer
+                    try {
+                        sendMessage(channelId, msg, true, options);
+                        ComponentDispatch?.dispatchToLastSubscribed?.("CLEAR_TEXT");
+                        ComponentDispatch?.dispatchToLastSubscribed?.("TEXTAREA_FOCUS");
+                    } catch {
+                        MessageActions.sendMessage(channelId, msg);
+                    }
                     bypassNext = false;
-                    const inp = document.querySelector("[data-slate-editor=\"true\"]") as HTMLElement | null;
-                    inp?.focus();
-                }}
-            />
-        ));
+                }
+            },
+            onCancel: () => {
+                bypassNext = false;
+                const inp = document.querySelector("[data-slate-editor=\"true\"]") as HTMLElement | null;
+                inp?.focus();
+            }
+        });
 
         return { cancel: true };
     },
