@@ -2,6 +2,8 @@
 
 A Vencord plugin designed to help protect against false bans from chat messages.
 
+<img src="example.png" alt="Example of SafeGuard in action">
+
 Discord has seemingly removed humans from their support team.
 This makes false bans much more common and much more difficult to appeal.
 This plugin aims to help you protect yourself from these false bans.
