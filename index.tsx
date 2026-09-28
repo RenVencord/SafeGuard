@@ -3,7 +3,8 @@ import { addContextMenuPatch, removeContextMenuPatch } from "@api/ContextMenu";
 import { ModalCloseButton, ModalContent, ModalFooter, ModalHeader, ModalRoot, openModal } from "@utils/modal";
 import definePlugin, { OptionType } from "@utils/types";
 import { findByPropsLazy } from "@webpack";
-import { Button, Forms, Menu, React } from "@webpack/common";
+import { Button, ComponentDispatch, Forms, Menu, React } from "@webpack/common";
+import { sendMessage } from "@utils/discord";
 
 let bypassNext = false;
 
@@ -579,6 +580,7 @@ export default definePlugin({
     description: "Warns you before sending messages that could get your account banned — slurs, ambiguous responses, age references, threats, and custom terms.",
     tags: ["Safety", "Chat", "Utility"],
     authors: [{ name: "ren", id: 163734654040539136n }],
+    dependencies: ["MessageEventsAPI"],
 
     settings,
 
@@ -594,7 +596,7 @@ export default definePlugin({
         removeContextMenuPatch("user-context", patchContextMenu);
     },
 
-    onBeforeMessageSend(channelId: string, msg: any) {
+    onBeforeMessageSend(channelId: string, msg: any, options?: any) {
         // Let re-sent messages (after user accepted risk) pass through
         if (bypassNext) {
             bypassNext = false;
@@ -618,22 +620,45 @@ export default definePlugin({
                 risks={risks}
                 onAccept={() => {
                     bypassNext = true;
-                    const inp = document.querySelector("[data-slate-editor=\"true\"]");
-                    if (inp instanceof HTMLElement) {
+                    const inp = document.querySelector("[data-slate-editor=\"true\"]") as HTMLElement | null;
+                    let sent = false;
+
+                    if (inp) {
                         inp.focus();
-                        inp.dispatchEvent(new KeyboardEvent("keydown", {
-                            key: "Enter",
-                            code: "Enter",
-                            keyCode: 13,
-                            bubbles: true,
-                            cancelable: true,
-                        }));
-                    } else {
-                        // Fallback: composer not found, go via API
-                        MessageActions.sendMessage(channelId, msg);
+                        const propsKey = Object.keys(inp).find(k => k.startsWith("__reactProps$"));
+                        const reactProps = propsKey ? (inp as any)[propsKey] : null;
+                        if (typeof reactProps?.onKeyDown === "function") {
+                            try {
+                                reactProps.onKeyDown({
+                                    key: "Enter",
+                                    code: "Enter",
+                                    keyCode: 13,
+                                    which: 13,
+                                    preventDefault: () => { },
+                                    stopPropagation: () => { }
+                                });
+                                sent = true;
+                            } catch { }
+                        }
+                    }
+
+                    if (!sent) {
+                        // Fallback: send message via API and clear composer
+                        try {
+                            sendMessage(channelId, msg, true, options);
+                            ComponentDispatch?.dispatchToLastSubscribed?.("CLEAR_TEXT");
+                            ComponentDispatch?.dispatchToLastSubscribed?.("TEXTAREA_FOCUS");
+                        } catch {
+                            MessageActions.sendMessage(channelId, msg);
+                        }
+                        bypassNext = false;
                     }
                 }}
-                onCancel={() => { }}
+                onCancel={() => {
+                    bypassNext = false;
+                    const inp = document.querySelector("[data-slate-editor=\"true\"]") as HTMLElement | null;
+                    inp?.focus();
+                }}
             />
         ));
 
